@@ -1,29 +1,22 @@
 # Pasta Product Backlog
 
-## 1. Enterprise & Large Network Connectivity
+## Completed Features
 
-### Problem Statement
-In large networks (such as university campuses, school dorms, corporate offices, and conference venues), devices are often placed in different subnets/VLANs (e.g., `172.26.80.x` vs `172.26.91.x`) and access points enforce **AP / Client Isolation (Station Isolation)**. This intentionally drops peer-to-peer Layer 2/Layer 3 traffic between connected Wi-Fi devices, preventing mobile devices from opening `http://<lan-ip>:8765`.
-
-### Proposed Solutions & Features
-
-#### A. Multi-Interface Detection & Custom Host Flag for `--qr`
-- **Current Limitation:** `lanIP()` exclusively dials `8.8.8.8` to query the kernel for the primary route interface. When users set up a Wi-Fi hotspot (`10.42.0.1`), use Tailscale (`100.x.y.z`), or an HTTPS tunnel, `pasta --qr` prints the wrong IP and cannot be overridden.
-- **Feature:**
-  - Add `--host <ip_or_domain>` flag to `pasta` and `pasta --qr` to override the magic link host.
-  - Enhance `--qr` to enumerate active non-loopback network interfaces (Wi-Fi, virtual AP/hotspots, WireGuard/Tailscale tunnels) and display selectable QR codes.
-
-#### B. Embedded Tailscale (`tsnet`) Node (Zero-Config Mesh Connectivity)
-- **Concept:** Utilize `tailscale.com/tsnet` to embed an encrypted WireGuard peer directly inside the Pasta binary.
-- **Benefit:** Allows Pasta to join a private tailnet as a named machine (e.g., `pasta-host`) without requiring root access or external VPN client installations. Bypasses enterprise NAT, AP isolation, and firewalls seamlessly.
-
-#### C. Relay / Tunneling Guides & CLI Integration
-- Provide first-class documentation and optional helper scripts for:
-  - **USB ADB Reverse Tethering:** `adb reverse tcp:8765 tcp:8765` for 100% offline, zero-network USB connection.
-  - **Local Wi-Fi Hotspot:** `nmcli device wifi hotspot` to bypass corporate AP isolation.
-  - **Zero-config HTTPS Tunnels:** Built-in recommendations or integration with Cloudflare Tunnel (`cloudflared`) or Pinggy.
+### 1. Enterprise & Large Network Connectivity (Completed)
+- **Problem Solved:** When mobile devices and the host laptop are placed on different subnets/VLANs (e.g. `172.26.80.x` vs `172.26.91.x`) or on enterprise/university Wi-Fi networks enforcing AP/Client Isolation, peer-to-peer traffic is dropped by network access points.
+- **Implemented Capabilities:**
+  - **Network Interface Auto-Detection:** Automatically enumerates and classifies active network adapters into Wi-Fi, Hotspot/AP (`10.42.0.1`, `192.168.137.1`), USB Tethering (`192.168.42.x`, `172.20.10.x`), Tailscale/VPN (`100.64.0.0/10`), Ethernet, and mDNS hostname (`<host>.local`).
+  - **`--host <ip_or_domain>` Override:** Generates Magic Link & QR code with custom IPs, local domains, or public HTTPS tunnels (`https://*.trycloudflare.com`, `https://*.pinggy.io`).
+  - **`--interface <name_or_ip>`:** Directly targets a specific adapter (e.g. `pasta --qr --interface hotspot`).
+  - **`--interfaces`:** Lists all active interfaces and their status/URLs.
+  - **`--all-qr`:** Sequentially outputs QR codes for all detected networks.
+  - **`--usb` Mode:** One-command setup for ADB reverse tethering (`adb reverse tcp:8765 tcp:8765` + `http://localhost:8765/?token=...`).
+  - **`--troubleshoot`:** Built-in actionable guide detailing Hotspot, USB, Tailscale, and SSH tunnel workarounds.
+  - **Reverse Proxy / Tunnel Support:** Added `X-Forwarded-For` and `X-Real-IP` parsing in the rate limiter and logger for seamless public tunnel routing.
 
 ---
 
-## 2. Remote Screen Capture & Screenshot Sync (In Progress / Scoping)
-- See current feature implementation plan for native X11/Windows screen capture and clipboard synchronization.
+## Future Backlog Ideas
+
+### Direct WebRTC DataChannel Pairing (Peer-to-Peer without Port Forwarding)
+- Explore lightweight WebRTC DataChannel signaling via a public rendezvous relay to allow direct, encrypted browser-to-host communication through symmetric enterprise NATs without requiring local IP reachability.

@@ -83,6 +83,12 @@ fail loudly with `400` naming the character — no silent drops.
 | `--max-type-bytes` | `4096` | Max stealth-type payload (typing is paced ~2ms/event) |
 | `--tls` | off | Enable HTTPS with auto-generated self-signed certificate (required for Clipboard API on iOS Safari) |
 | `--qr`, `--setup` | off | Print the Magic Link QR for this LAN and exit (no daemon) |
+| `--host` | `""` | Override host/IP/domain in Magic Link and QR (e.g. `10.42.0.1`, `thinkpad.local`, `https://xyz.trycloudflare.com`) |
+| `--interface` | `""` | Select specific network interface name or IP for `--qr` (e.g. `wlan0`, `eth0`, `hotspot`, `10.42.0.1`) |
+| `--interfaces` | off | List all active network interfaces with IP, type, and URLs, then exit |
+| `--all-qr` | off | Print QR codes for all detected network interfaces sequentially |
+| `--usb` | off | Print Magic Link and QR code for USB / ADB reverse tethering (`localhost:8765`) |
+| `--troubleshoot` | off | Display step-by-step connection guide for enterprise, school, and office networks |
 | `--verbose` | off | Request logging (stderr only — **no log files ever**) |
 
 ## API
@@ -135,6 +141,61 @@ If your host runs a firewall such as `ufw`, open port `8765` so your mobile devi
   sudo ufw allow 8765/tcp comment "Pasta"
   sudo ufw reload
   ```
+
+---
+
+## Connecting on School, Office & Enterprise Networks (Bypassing AP Isolation)
+
+In large environments (university campuses, corporate offices, dorms), mobile devices and laptops are frequently isolated across different subnets/VLANs (e.g. `172.26.80.x` vs `172.26.91.x`) or blocked by **AP / Client Isolation**, which drops direct peer-to-peer Wi-Fi packets.
+
+Pasta provides four built-in methods to connect seamlessly:
+
+### 1. Laptop Wi-Fi Hotspot (Recommended — No Extra Tools)
+Create a direct local Wi-Fi hotspot on your laptop and connect your phone to it:
+- **Linux:**
+  ```sh
+  nmcli device wifi hotspot ssid PastaHotspot password MySecretPassword
+  ./bin/pasta --qr --interface 10.42.0.1
+  ```
+- **Windows:** Turn on "Mobile Hotspot" in Settings -> Network & Internet, then run:
+  ```powershell
+  pasta-cli --qr --interface 192.168.137.1
+  ```
+Pasta auto-detects hotspot IP addresses (`10.42.0.1` / `192.168.137.1`) and lists them under `[Hotspot / AP]`.
+
+### 2. USB Cable / ADB Reverse Tethering (100% Offline, Zero Wi-Fi Needed)
+Connect your phone to your computer with a USB cable:
+- **Android with ADB:**
+  ```sh
+  adb reverse tcp:8765 tcp:8765
+  ./bin/pasta --qr --usb
+  ```
+  Scan the QR code or open `http://localhost:8765` directly on your phone's browser!
+- **USB Tethering:** Turn on "USB Tethering" in your phone settings. Pasta automatically discovers the USB network adapter (`192.168.42.x` on Android or `172.20.10.x` on iOS) and generates the QR code.
+
+### 3. Tailscale / Mesh VPN (Encrypted Mesh Everywhere)
+If you use Tailscale, both devices are on your private tailnet (`100.x.y.z`). Run:
+```sh
+./bin/pasta --qr --host <tailscale-ip-or-magicdns>
+```
+
+### 4. Instant Zero-Config HTTPS Tunnel (Works Across Any Firewall)
+Create an encrypted public relay without installing software using standard SSH:
+- **Pinggy (Built into Linux & Windows):**
+  ```sh
+  ssh -p 443 -R0:localhost:8765 a.pinggy.io
+  ```
+  Copy the generated `https://*.a.pinggy.io` URL and generate the QR code:
+  ```sh
+  ./bin/pasta --qr --host https://your-subdomain.a.pinggy.io
+  ```
+- **Cloudflare Tunnel:**
+  ```sh
+  cloudflared tunnel --url http://localhost:8765
+  ./bin/pasta --qr --host https://your-tunnel.trycloudflare.com
+  ```
+
+Run `./bin/pasta --troubleshoot` anytime to view these instructions in your terminal.
 
 ---
 

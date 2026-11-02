@@ -374,3 +374,28 @@ func TestScreenshotSuccess(t *testing.T) {
 		t.Fatalf("body did not match mock PNG data")
 	}
 }
+
+func TestClientIP(t *testing.T) {
+	// 1. Direct RemoteAddr
+	req1 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req1.RemoteAddr = "192.168.1.50:54321"
+	if ip := clientIP(req1); ip != "192.168.1.50" {
+		t.Errorf("clientIP(req1) = %q; want 192.168.1.50", ip)
+	}
+
+	// 2. X-Forwarded-For header (e.g. through Cloudflare Tunnel or reverse proxy)
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.RemoteAddr = "127.0.0.1:8765"
+	req2.Header.Set("X-Forwarded-For", "203.0.113.195, 10.0.0.1")
+	if ip := clientIP(req2); ip != "203.0.113.195" {
+		t.Errorf("clientIP(req2) = %q; want 203.0.113.195", ip)
+	}
+
+	// 3. X-Real-IP header
+	req3 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req3.RemoteAddr = "127.0.0.1:8765"
+	req3.Header.Set("X-Real-IP", "198.51.100.42")
+	if ip := clientIP(req3); ip != "198.51.100.42" {
+		t.Errorf("clientIP(req3) = %q; want 198.51.100.42", ip)
+	}
+}

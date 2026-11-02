@@ -107,8 +107,18 @@ func TestLanIPLooksV4(t *testing.T) {
 
 func TestRunQR(t *testing.T) {
 	tempConfigEnv(t)
-	if err := runQR(8765); err != nil {
+	if err := runQR(QROptions{Port: 8765}); err != nil {
 		t.Fatalf("runQR: %v", err)
+	}
+
+	// Test USB mode
+	if err := runQR(QROptions{Port: 8765, USB: true}); err != nil {
+		t.Fatalf("runQR USB: %v", err)
+	}
+
+	// Test custom host
+	if err := runQR(QROptions{Port: 8765, Host: "10.42.0.1"}); err != nil {
+		t.Fatalf("runQR Host: %v", err)
 	}
 }
 
