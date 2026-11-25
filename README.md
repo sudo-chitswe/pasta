@@ -179,20 +179,30 @@ If you use Tailscale, both devices are on your private tailnet (`100.x.y.z`). Ru
 ./bin/pasta --qr --host <tailscale-ip-or-magicdns>
 ```
 
-### 4. Instant Zero-Config HTTPS Tunnel (Works Across Any Firewall)
-Create an encrypted public relay without installing software using standard SSH:
-- **Pinggy (Built into Linux & Windows):**
+### 4. Instant HTTPS Tunnel (Bypasses Any Firewall & DPI)
+When on restrictive campus/office Wi-Fi with Deep Packet Inspection (DPI), SSH-based tunnels (such as Pinggy) often fail with `Connection reset by peer` because the firewall detects SSH protocol headers on port 443. Use **Cloudflare Quick Tunnel** instead, which uses genuine HTTPS/TLS:
+
+- **Cloudflare Tunnel (Free, No Account Needed):**
+  - Linux:
+    ```sh
+    curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared && chmod +x cloudflared
+    ./cloudflared tunnel --url http://localhost:8765
+    ```
+  - Windows:
+    Download `cloudflared-windows-amd64.exe` and run:
+    ```powershell
+    .\cloudflared.exe tunnel --url http://localhost:8765
+    ```
+  Copy the generated `https://*.trycloudflare.com` URL and run:
+  ```sh
+  ./bin/pasta --qr --host https://your-tunnel.trycloudflare.com
+  ```
+
+- **Pinggy (SSH Relay):**
+  If your network does not block SSH over port 443:
   ```sh
   ssh -p 443 -R0:localhost:8765 a.pinggy.io
-  ```
-  Copy the generated `https://*.a.pinggy.io` URL and generate the QR code:
-  ```sh
   ./bin/pasta --qr --host https://your-subdomain.a.pinggy.io
-  ```
-- **Cloudflare Tunnel:**
-  ```sh
-  cloudflared tunnel --url http://localhost:8765
-  ./bin/pasta --qr --host https://your-tunnel.trycloudflare.com
   ```
 
 Run `./bin/pasta --troubleshoot` anytime to view these instructions in your terminal.

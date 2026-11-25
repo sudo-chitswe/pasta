@@ -387,15 +387,19 @@ Here are the 4 recommended ways to connect:
    - Both devices join your private tailnet (100.x.y.z).
    - Run: pasta --qr --host <tailscale-ip-or-magicdns>
 
-4. Instant Zero-Config HTTPS Tunnel (Works Across Any Firewall)
-   Use built-in SSH to create an instant public HTTPS relay (free, no account required):
-   - Linux & Windows:
-       ssh -p 443 -R0:localhost:` + fmt.Sprint(port) + ` a.pinggy.io
-       (Copy the printed https://... URL and run):
-       pasta --qr --host https://<your-pinggy-subdomain>.a.pinggy.io
-   - Or Cloudflare Tunnel:
-       cloudflared tunnel --url http://localhost:` + fmt.Sprint(port) + `
-       pasta --qr --host https://<your-tunnel>.trycloudflare.com`)
+4. Instant HTTPS Tunnel (Bypasses Any Firewall & DPI)
+   Use Cloudflare Quick Tunnel (genuine HTTPS over TLS, immune to DPI blocking):
+   - Linux:
+       curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared && chmod +x cloudflared
+       ./cloudflared tunnel --url http://localhost:` + fmt.Sprint(port) + `
+       (Copy the printed https://...trycloudflare.com URL and run):
+       pasta --qr --host https://<your-tunnel>.trycloudflare.com
+   - Windows:
+       cloudflared.exe tunnel --url http://localhost:` + fmt.Sprint(port) + `
+       pasta-cli --qr --host https://<your-tunnel>.trycloudflare.com
+
+   Note: SSH-based tunnels (like Pinggy) are often killed by school/office DPI firewalls
+   with 'Connection reset by peer' because they detect non-TLS traffic on port 443.`)
 }
 
 // runQR prints the Magic Link QR code for the desired host/interface and exits.
