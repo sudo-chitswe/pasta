@@ -268,7 +268,7 @@ func (s *Server) HandleType(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.log.Printf("type error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, syncResponse{Error: "failed to type text"})
+		writeJSON(w, http.StatusInternalServerError, syncResponse{Error: "failed to type text: " + err.Error()})
 		return
 	}
 	if s.opts.Verbose {

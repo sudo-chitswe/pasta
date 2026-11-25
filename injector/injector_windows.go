@@ -4,10 +4,11 @@ package injector
 
 import (
 	"errors"
+	"fmt"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
-	"github.com/sudochitswe-v2/pasta/translator"
 	"golang.org/x/sys/windows"
 )
 
@@ -17,39 +18,12 @@ var (
 )
 
 const (
-	inputKeyboard  = 1
-	keyeventfKeyup = 0x0002
-	vkControl      = 0x11
-	vkV            = 0x56
-	vkShift        = 0x10
-	vkReturn       = 0x0D
-	vkTab          = 0x09
-	vkSpace        = 0x20
+	inputKeyboard      = 1
+	keyeventfKeyup     = 0x0002
+	keyeventfUnicode   = 0x0004
+	vkControl          = 0x11
+	vkV                = 0x56
 )
-
-// vkMap translates abstract translator keys to Win32 virtual-key codes.
-var vkMap = map[translator.KeyCode]uint16{
-	translator.KeyA: 0x41, translator.KeyB: 0x42, translator.KeyC: 0x43,
-	translator.KeyD: 0x44, translator.KeyE: 0x45, translator.KeyF: 0x46,
-	translator.KeyG: 0x47, translator.KeyH: 0x48, translator.KeyI: 0x49,
-	translator.KeyJ: 0x4A, translator.KeyK: 0x4B, translator.KeyL: 0x4C,
-	translator.KeyM: 0x4D, translator.KeyN: 0x4E, translator.KeyO: 0x4F,
-	translator.KeyP: 0x50, translator.KeyQ: 0x51, translator.KeyR: 0x52,
-	translator.KeyS: 0x53, translator.KeyT: 0x54, translator.KeyU: 0x55,
-	translator.KeyV: 0x56, translator.KeyW: 0x57, translator.KeyX: 0x58,
-	translator.KeyY: 0x59, translator.KeyZ: 0x5A,
-	translator.Key1: 0x31, translator.Key2: 0x32, translator.Key3: 0x33,
-	translator.Key4: 0x34, translator.Key5: 0x35, translator.Key6: 0x36,
-	translator.Key7: 0x37, translator.Key8: 0x38, translator.Key9: 0x39,
-	translator.Key0:     0x30,
-	translator.KeyMinus: 0xBD, translator.KeyEqual: 0xBB,
-	translator.KeyLeftBrace: 0xDB, translator.KeyRightBrace: 0xDD,
-	translator.KeyBackslash: 0xDC, translator.KeySemicolon: 0xBA,
-	translator.KeyApostrophe: 0xDE, translator.KeyGrave: 0xC0,
-	translator.KeyComma: 0xBC, translator.KeyDot: 0xBE, translator.KeySlash: 0xBF,
-	translator.KeySpace: vkSpace, translator.KeyEnter: vkReturn,
-	translator.KeyTab: vkTab, translator.KeyShift: vkShift,
-}
 
 // DriverBackend is an optional kernel-mode keystroke backend (e.g. the
 // Interception API or a Nefarius/ViGEmBus-style KMDF filter). Keystrokes
@@ -59,8 +33,8 @@ var vkMap = map[translator.KeyCode]uint16{
 //
 // Wiring: install the driver per its own installer, then call
 // RegisterDriver at startup (e.g. from main) before serving. When no
-// backend is registered, Type falls back to SendInput — which secure apps
-// may still reject (see the LLKHF note in README).
+// backend is registered, Type falls back to SendInput with KEYEVENTF_UNICODE
+// — which secure apps may still reject via LLKHF_INJECTED.
 type DriverBackend interface {
 	// SendKey emits one make (down=true) / break (down=false) event for a
 	// Win32 virtual-key code.
@@ -104,6 +78,28 @@ func New() (Injector, error) {
 	return &windowsInjector{}, nil
 }
 
+// sendInputs calls user32 SendInput with a slice of INPUT structs.
+// The slice must remain alive for the duration of the call; passing a
+// local slice keeps it on the goroutine stack / heap and is safe here.
+func sendInputs(inputs []input) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	n := uintptr(len(inputs))
+	r, _, err := procSendInput.Call(
+		n,
+		uintptr(unsafe.Pointer(&inputs[0])),
+		unsafe.Sizeof(inputs[0]),
+	)
+	if r != n {
+		if err != nil && !errors.Is(err, windows.ERROR_SUCCESS) {
+			return fmt.Errorf("injector: SendInput: %w", err)
+		}
+		return fmt.Errorf("injector: SendInput injected %d of %d events", r, n)
+	}
+	return nil
+}
+
 // Paste implements Injector: Ctrl down, V down, V up, Ctrl up.
 func (w *windowsInjector) Paste() error {
 	inputs := []input{
@@ -112,59 +108,51 @@ func (w *windowsInjector) Paste() error {
 		{typ: inputKeyboard, ki: keyboardInput{wVk: vkV, dwFlags: keyeventfKeyup}},
 		{typ: inputKeyboard, ki: keyboardInput{wVk: vkControl, dwFlags: keyeventfKeyup}},
 	}
-	r, _, err := procSendInput.Call(
-		uintptr(len(inputs)),
-		uintptr(unsafe.Pointer(&inputs[0])),
-		unsafe.Sizeof(inputs[0]),
-	)
-	if r != uintptr(len(inputs)) {
-		if err != nil && !errors.Is(err, windows.ERROR_SUCCESS) {
-			return errors.New("injector: SendInput failed (foreground window may be elevated — see UIPI note)")
-		}
-		return errors.New("injector: SendInput injected partial input")
-	}
-	return nil
+	return sendInputs(inputs)
 }
 
-func sendOne(inp input) error {
-	r, _, err := procSendInput.Call(1, uintptr(unsafe.Pointer(&inp)), unsafe.Sizeof(inp))
-	if r != 1 {
-		if err != nil && !errors.Is(err, windows.ERROR_SUCCESS) {
-			return err
-		}
-		return errors.New("injector: SendInput injected no input")
-	}
-	return nil
-}
-
-// Type implements Injector (Stealth Type mode): each character becomes raw
-// key down/up events paced with micro-sleeps. With a registered kernel
-// driver backend the events carry no LLKHF_INJECTED flag; otherwise
-// SendInput is used and secure apps may still reject the input.
+// Type implements Injector (Stealth Type mode): each rune is emitted as a
+// KEYEVENTF_UNICODE down/up pair via SendInput, using UTF-16 scan codes.
+// This bypasses all VK-mapping and keyboard-layout issues and works for the
+// full Unicode BMP. Surrogate pairs (runes > U+FFFF) are split into two
+// UTF-16 code units, each sent as a separate down/up event pair.
+//
+// With a registered kernel driver backend the events carry no
+// LLKHF_INJECTED flag; otherwise SendInput is used and secure apps may
+// still reject the input.
 func (w *windowsInjector) Type(text string) error {
-	events, err := translator.Translate(text)
-	if err != nil {
-		return err
-	}
-	for _, ev := range events {
-		vk, ok := vkMap[ev.Key]
-		if !ok {
-			return errors.New("injector: no VK mapping")
-		}
-		if kernelDriver != nil {
-			if err := kernelDriver.SendKey(vk, ev.Down); err != nil {
-				return err
-			}
+	for _, r := range text {
+		// Encode the rune as UTF-16 (1 or 2 code units).
+		var units []uint16
+		if r < 0x10000 {
+			units = []uint16{uint16(r)}
 		} else {
-			flags := uint32(0)
-			if !ev.Down {
-				flags = keyeventfKeyup
-			}
-			if err := sendOne(input{typ: inputKeyboard, ki: keyboardInput{wVk: vk, dwFlags: flags}}); err != nil {
-				return err
-			}
+			// Supplementary plane: encode as surrogate pair.
+			r1, r2 := utf16.EncodeRune(r)
+			units = []uint16{uint16(r1), uint16(r2)}
 		}
-		time.Sleep(translator.DefaultKeyDelay)
+
+		for _, u := range units {
+			if kernelDriver != nil {
+				// Kernel backend uses VK 0 and the scan code as the Unicode value.
+				if err := kernelDriver.SendKey(0, true); err != nil {
+					return fmt.Errorf("injector: kernel driver send down for U+%04X: %w", u, err)
+				}
+				if err := kernelDriver.SendKey(0, false); err != nil {
+					return fmt.Errorf("injector: kernel driver send up for U+%04X: %w", u, err)
+				}
+			} else {
+				// Use KEYEVENTF_UNICODE: wVk must be 0, wScan carries the UTF-16 unit.
+				inp := []input{
+					{typ: inputKeyboard, ki: keyboardInput{wScan: u, dwFlags: keyeventfUnicode}},
+					{typ: inputKeyboard, ki: keyboardInput{wScan: u, dwFlags: keyeventfUnicode | keyeventfKeyup}},
+				}
+				if err := sendInputs(inp); err != nil {
+					return fmt.Errorf("injector: type U+%04X: %w", u, err)
+				}
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
 	}
 	return nil
 }
