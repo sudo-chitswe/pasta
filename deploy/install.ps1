@@ -57,7 +57,9 @@ if ($userPath -notmatch [regex]::Escape($destDir)) {
 }
 
 $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-New-Item -Path $runKey -Force | Out-Null
+if (-not (Test-Path $runKey)) {
+  New-Item -Path $runKey -Force | Out-Null
+}
 # Quoted path; --no-inject omitted so auto-paste is enabled.
 New-ItemProperty -Path $runKey -Name "Pasta" -Value "`"$dest`"" -PropertyType String -Force | Out-Null
 Write-Host "registered HKCU Run key 'Pasta' (starts silently at logon)."

@@ -24,11 +24,15 @@ Start-Sleep -Milliseconds 800
 
 New-Item -ItemType Directory -Force -Path $destDir | Out-Null
 
-# 3. Check for local build if inside cloned repo
-$localBin = Join-Path $PSScriptRoot "bin\pasta.exe"
-$localCli = Join-Path $PSScriptRoot "bin\pasta-cli.exe"
+# 3. Check for local build if running from a cloned repository script
+$localBin = $null
+$localCli = $null
+if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+  $localBin = Join-Path $PSScriptRoot "bin\pasta.exe"
+  $localCli = Join-Path $PSScriptRoot "bin\pasta-cli.exe"
+}
 
-if ((Test-Path $localBin) -and (Test-Path $localCli)) {
+if ($localBin -and $localCli -and (Test-Path $localBin) -and (Test-Path $localCli)) {
   Write-Host "--> Using local build from current directory..." -ForegroundColor Cyan
   Copy-Item -Force $localBin $dest
   Copy-Item -Force $localCli $cliDest
@@ -43,16 +47,22 @@ if ((Test-Path $localBin) -and (Test-Path $localCli)) {
   $tempZip = Join-Path $env:TEMP "pasta-windows-$([guid]::NewGuid().ToString('N')).zip"
   $tempExtract = Join-Path $env:TEMP "pasta-extract-$([guid]::NewGuid().ToString('N'))"
 
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+  } catch {}
+
   Write-Host "--> Downloading Pasta from GitHub ($Version)..." -ForegroundColor Cyan
   try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
     Invoke-WebRequest -Uri $zipUrl -OutFile $tempZip -UseBasicParsing
     Expand-Archive -Path $tempZip -DestinationPath $tempExtract -Force
     
     $extractedBin = Get-ChildItem -Path $tempExtract -Filter "pasta.exe" -Recurse | Select-Object -First 1
     $extractedCli = Get-ChildItem -Path $tempExtract -Filter "pasta-cli.exe" -Recurse | Select-Object -First 1
 
-    if ($extractedBin) { Copy-Item -Force $extractedBin.FullName $dest }
+    if (-not $extractedBin) {
+      throw "pasta.exe not found in release archive."
+    }
+    Copy-Item -Force $extractedBin.FullName $dest
     if ($extractedCli) { Copy-Item -Force $extractedCli.FullName $cliDest }
   } catch {
     Write-Host "--> Release archive unavailable; downloading binaries from repository..." -ForegroundColor Yellow
@@ -68,32 +78,33 @@ Write-Host "✓ Installed binaries to $destDir" -ForegroundColor Green
 
 # 4. Add to User PATH if missing
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($userPath -notmatch [regex]::Escape($destDir)) {
-  $newPath = $userPath
-  if (-not [string]::IsNullOrEmpty($newPath) -and -not $newPath.EndsWith(";")) { $newPath += ";" }
-  $newPath += $destDir
+$pathEntries = if ([string]::IsNullOrEmpty($userPath)) { @() } else { $userPath -split ';' | Where-Object { $_ -ne '' } }
+if ($pathEntries -notcontains $destDir) {
+  $newPath = if ([string]::IsNullOrEmpty($userPath)) { $destDir } elseif ($userPath.EndsWith(";")) { $userPath + $destDir } else { $userPath + ";" + $destDir }
   [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-  $env:Path = $newPath + ";" + $env:Path
+  $env:Path = "$destDir;" + $env:Path
   Write-Host "✓ Added $destDir to user PATH." -ForegroundColor Green
 }
 
 # 5. Register auto-start in registry Run key
 $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-New-Item -Path $runKey -Force | Out-Null
+if (-not (Test-Path $runKey)) {
+  New-Item -Path $runKey -Force | Out-Null
+}
 New-ItemProperty -Path $runKey -Name "Pasta" -Value "`"$dest`"" -PropertyType String -Force | Out-Null
 Write-Host "✓ Registered auto-start at logon (HKCU Run key)." -ForegroundColor Green
 
-# 6. Launch background process
-Write-Host "✓ Launching Pasta background daemon..." -ForegroundColor Green
-Start-Process $dest
-
+# 6. Print QR code pairing link before launching daemon so config.json token is initialized first
 Write-Host ""
 Write-Host "====================================================" -ForegroundColor Green
-Write-Host "   Pasta successfully installed and running!        " -ForegroundColor Green
+Write-Host "   Pasta successfully installed!                    " -ForegroundColor Green
 Write-Host "====================================================" -ForegroundColor Green
 Write-Host ""
 
-# 7. Print QR code pairing link
 if (Test-Path $cliDest) {
   & $cliDest --qr
 }
+
+# 7. Launch background process
+Write-Host "✓ Launching Pasta background daemon..." -ForegroundColor Green
+Start-Process $dest
