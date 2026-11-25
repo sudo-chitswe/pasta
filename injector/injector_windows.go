@@ -82,13 +82,14 @@ type keyboardInput struct {
 }
 
 // input mirrors the Win32 INPUT struct on amd64 (40 bytes): DWORD type at
-// offset 0, 4 bytes padding, then the KEYBDINPUT union member at offset 8.
-// The trailing pad rounds the 28 meaningful bytes up to sizeof(INPUT) == 40.
+// offset 0, 4 bytes padding, then the KEYBDINPUT union member (24 bytes) at
+// offset 8. The trailing 8-byte pad rounds the 32 bytes up to sizeof(INPUT) == 40
+// (matching the 32-byte MOUSEINPUT union member).
 type input struct {
 	typ uint32
 	pad uint32
 	ki  keyboardInput
-	_   [12]byte
+	_   [8]byte
 }
 
 type windowsInjector struct{}
